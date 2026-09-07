@@ -17,6 +17,7 @@ type Values struct {
 	Lookup                                func(string) string
 }
 
+// Resolve applies flag-over-environment precedence and validates credentials.
 func Resolve(values Values) (Config, error) {
 	lookup := values.Lookup
 	if lookup == nil {
@@ -42,6 +43,7 @@ func Resolve(values Values) (Config, error) {
 	return resolved, nil
 }
 
+// firstNonEmpty returns the first value containing non-whitespace text.
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {

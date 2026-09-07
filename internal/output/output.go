@@ -30,6 +30,7 @@ type ZoneResult struct {
 	Metadata
 }
 
+// Products renders products as stable JSON or a human-readable table.
 func Products(writer io.Writer, format string, products []sdk.Product, response sdk.Response) error {
 	sort.SliceStable(products, func(left, right int) bool {
 		return productKey(products[left]) < productKey(products[right])
@@ -54,6 +55,7 @@ func Products(writer io.Writer, format string, products []sdk.Product, response 
 	return w.Flush()
 }
 
+// Records renders DNS records as stable JSON or a human-readable table.
 func Records(writer io.Writer, format string, records []sdk.Record, response sdk.Response) error {
 	sort.SliceStable(records, func(left, right int) bool {
 		return recordKey(records[left]) < recordKey(records[right])
@@ -78,6 +80,7 @@ func Records(writer io.Writer, format string, records []sdk.Record, response sdk
 	return w.Flush()
 }
 
+// Zone renders a DNS zone and its records as JSON or a human-readable table.
 func Zone(writer io.Writer, format string, zone sdk.Zone, response sdk.Response) error {
 	sort.SliceStable(zone.Records, func(left, right int) bool {
 		return recordKey(zone.Records[left]) < recordKey(zone.Records[right])
@@ -91,18 +94,22 @@ func Zone(writer io.Writer, format string, zone sdk.Zone, response sdk.Response)
 	return Records(writer, "table", zone.Records, response)
 }
 
+// metadata extracts stable rate-limit fields from an SDK response.
 func metadata(response sdk.Response) Metadata {
 	return Metadata{RateLimit: response.RateLimitLimit, RateLimitRemaining: response.RateLimitRemaining}
 }
 
+// productKey creates the deterministic sort key for a product row.
 func productKey(product sdk.Product) string {
 	return product.Object + "\x00" + product.Type + "\x00" + product.Name
 }
 
+// recordKey creates the deterministic sort key for a DNS record row.
 func recordKey(record sdk.Record) string {
 	return record.Name + "\x00" + record.Type + "\x00" + record.Value + "\x00" + record.ID
 }
 
+// ttl formats an optional DNS TTL without inventing a value when absent.
 func ttl(value *int) string {
 	if value == nil {
 		return ""

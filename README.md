@@ -154,6 +154,16 @@ SIMPLY_API_KEY="your-api-key" simply-cli --non-interactive \
 Use `--output table` for human-readable output and `--output json` for stable,
 machine-readable output.
 
+For troubleshooting, enable structured HTTP diagnostics with `--debug`:
+
+```bash
+SIMPLY_API_KEY="your-api-key" simply-cli --debug auth check
+SIMPLY_API_KEY="your-api-key" simply-cli --debug-file /tmp/simply-cli-debug.log auth check
+```
+
+Authorization and cookie headers are redacted. Debug output is bounded and is
+sent to the file instead of standard error when `--debug-file` is supplied.
+
 ## Make targets
 
 - `make run` runs the application.

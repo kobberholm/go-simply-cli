@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -148,6 +150,38 @@ func TestZoneShowUsesDNSService(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"example.test"`) || !strings.Contains(stdout.String(), `"192.0.2.1"`) {
 		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestDebugFileIsPassedToClientWithoutChangingStdout(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	debugPath := filepath.Join(t.TempDir(), "debug.log")
+	deps := defaultDependencies()
+	debugWriter, closeDebug, err := debugOutput([]string{"--debug-file", debugPath}, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeDebug()
+	deps.debugWriter = debugWriter
+	deps.newClient = func(config simply.Config) (simply.Client, error) {
+		if config.DebugWriter == nil {
+			t.Fatal("debug writer was not configured")
+		}
+		return fakeClient{products: fakeProducts{products: []sdk.Product{{Object: "example.test"}}}}, nil
+	}
+	err = runWithDependencies([]string{"--non-interactive", "--api-key", "key", "products", "list", "--output", "json"}, strings.NewReader(""), &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"example.test"`) || stderr.Len() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q", stdout.String(), stderr.String())
+	}
+	info, err := os.Stat(debugPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("debug file permissions = %o", info.Mode().Perm())
 	}
 }
 

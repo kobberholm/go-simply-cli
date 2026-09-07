@@ -69,6 +69,8 @@ Global flags:
 | `--interactive` | Require prompts for missing input. |
 | `--non-interactive` | Disable all prompts and fail on missing input. |
 | `--yes` | Approve an operation that would otherwise request confirmation. |
+| `--debug` | Log sanitized HTTP requests and responses to standard error. |
+| `--debug-file` | Write sanitized HTTP requests and responses to an owner-only file. |
 
 Environment variables are `SIMPLY_API_KEY`, `SIMPLY_AUTH_MODE`, and
 `SIMPLY_ACCOUNT`. A flag overrides its corresponding environment variable. An

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/kobberholm/go-simply-cli/internal/config"
 	"github.com/kobberholm/go-simply-cli/internal/input"
@@ -24,14 +26,19 @@ type options struct {
 	interactive    bool
 	nonInteractive bool
 	yes            bool
+	debug          bool
+	debugFile      string
+	debugWriter    io.Writer
 }
 
 type dependencies struct {
-	newClient func(simply.Config) (simply.Client, error)
-	secret    input.PromptFunc
-	line      input.PromptFunc
+	newClient   func(simply.Config) (simply.Client, error)
+	secret      input.PromptFunc
+	line        input.PromptFunc
+	debugWriter io.Writer
 }
 
+// defaultDependencies returns production prompt and SDK constructors.
 func defaultDependencies() dependencies {
 	return dependencies{
 		newClient: simply.NewClient,
@@ -42,11 +49,56 @@ func defaultDependencies() dependencies {
 
 // Run constructs and executes the CLI with caller-owned streams.
 func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	root := newRootCommand(ctx, stdin, stdout, stderr, defaultDependencies())
+	deps := defaultDependencies()
+	debugWriter, closeDebug, err := debugOutput(args, stderr)
+	if err != nil {
+		return err
+	}
+	defer closeDebug()
+	deps.debugWriter = debugWriter
+	root := newRootCommand(ctx, stdin, stdout, stderr, deps)
 	root.SetArgs(args)
 	return root.Execute()
 }
 
+// debugOutput selects stderr or an owner-only file for HTTP diagnostics.
+func debugOutput(args []string, stderr io.Writer) (io.Writer, func() error, error) {
+	debug := false
+	debugFile := ""
+	for index := 0; index < len(args); index++ {
+		switch args[index] {
+		case "--debug":
+			debug = true
+		case "--debug-file":
+			if index+1 >= len(args) {
+				return nil, func() error { return nil }, fmt.Errorf("--debug-file requires a path")
+			}
+			debugFile = args[index+1]
+			index++
+		default:
+			if strings.HasPrefix(args[index], "--debug-file=") {
+				debugFile = strings.TrimPrefix(args[index], "--debug-file=")
+			}
+		}
+	}
+	if debugFile != "" {
+		file, err := os.OpenFile(filepath.Clean(debugFile), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
+		if err != nil {
+			return nil, func() error { return nil }, fmt.Errorf("open debug file: %w", err)
+		}
+		if err := file.Chmod(0o600); err != nil {
+			_ = file.Close()
+			return nil, func() error { return nil }, fmt.Errorf("secure debug file: %w", err)
+		}
+		return file, file.Close, nil
+	}
+	if debug {
+		return stderr, func() error { return nil }, nil
+	}
+	return nil, func() error { return nil }, nil
+}
+
+// newRootCommand builds the complete command tree over caller-owned streams.
 func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, deps dependencies) *cobra.Command {
 	var opts options
 
@@ -66,6 +118,9 @@ func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 			if opts.output != "table" && opts.output != "json" {
 				return fmt.Errorf("--output must be table or json")
 			}
+			if opts.debug || deps.debugWriter != nil {
+				opts.debugWriter = deps.debugWriter
+			}
 			return nil
 		},
 	}
@@ -82,6 +137,8 @@ func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 	flags.BoolVar(&opts.interactive, "interactive", false, "Prompt for missing values, even when stdin is not a terminal")
 	flags.BoolVar(&opts.nonInteractive, "non-interactive", false, "Disable prompts and fail on missing values")
 	flags.BoolVar(&opts.yes, "yes", false, "Approve update, delete, and reload operations")
+	flags.BoolVar(&opts.debug, "debug", false, "Log sanitized HTTP requests and responses")
+	flags.StringVar(&opts.debugFile, "debug-file", "", "Write debug HTTP logs to this file instead of standard error")
 
 	auth := &cobra.Command{Use: "auth", Short: "Check and manage authentication"}
 	auth.AddCommand(authCheckCommand(&opts, stdin, stdout, deps))
@@ -105,6 +162,7 @@ func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 	return root
 }
 
+// productsListCommand creates the read-only product inventory command.
 func productsListCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dependencies) *cobra.Command {
 	return &cobra.Command{
 		Use:     "list",
@@ -124,6 +182,7 @@ func productsListCommand(opts *options, stdin io.Reader, stdout io.Writer, deps 
 	}
 }
 
+// recordsListCommand creates the read-only DNS record list command.
 func recordsListCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dependencies) *cobra.Command {
 	command := &cobra.Command{
 		Use:     "list",
@@ -150,6 +209,7 @@ func recordsListCommand(opts *options, stdin io.Reader, stdout io.Writer, deps d
 	return command
 }
 
+// zoneShowCommand creates the read-only DNS zone display command.
 func zoneShowCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dependencies) *cobra.Command {
 	command := &cobra.Command{
 		Use:     "show",
@@ -176,18 +236,20 @@ func zoneShowCommand(opts *options, stdin io.Reader, stdout io.Writer, deps depe
 	return command
 }
 
+// clientForCommand resolves credentials and builds the configured SDK client.
 func clientForCommand(cmd *cobra.Command, opts options, stdin io.Reader, stdout io.Writer, deps dependencies) (simply.Client, error) {
 	credentials, err := resolveCredentials(cmd, opts, stdin, stdout, deps)
 	if err != nil {
 		return nil, err
 	}
-	client, err := deps.newClient(simply.Config{APIKey: credentials.APIKey, Account: credentials.Account, AuthMode: credentials.AuthMode})
+	client, err := deps.newClient(simply.Config{APIKey: credentials.APIKey, Account: credentials.Account, AuthMode: credentials.AuthMode, DebugWriter: opts.debugWriter})
 	if err != nil {
 		return nil, fmt.Errorf("create Simply client: %w", err)
 	}
 	return client, nil
 }
 
+// commandError adds operation context and retry guidance to SDK failures.
 func commandError(operation string, err error, response sdk.Response) error {
 	if response.StatusCode == 429 && response.RetryAfter != "" {
 		return fmt.Errorf("%s failed: %w (retry after %s)", operation, err, response.RetryAfter)
@@ -195,19 +257,14 @@ func commandError(operation string, err error, response sdk.Response) error {
 	return fmt.Errorf("%s failed: %w", operation, err)
 }
 
+// authCheckCommand creates the credential validation command.
 func authCheckCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dependencies) *cobra.Command {
 	command := &cobra.Command{
 		Use:     "check",
 		Short:   "Validate credentials with a read-only product request",
 		Example: "Interactive: simply-cli auth check\nNon-interactive: SIMPLY_API_KEY=... simply-cli --non-interactive auth check",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			credentials, err := resolveCredentials(cmd, *opts, stdin, stdout, deps)
-			if err != nil {
-				return err
-			}
-			client, err := deps.newClient(simply.Config{
-				APIKey: credentials.APIKey, Account: credentials.Account, AuthMode: credentials.AuthMode,
-			})
+			client, err := clientForCommand(cmd, *opts, stdin, stdout, deps)
 			if err != nil {
 				return fmt.Errorf("create Simply client: %w", err)
 			}
@@ -227,6 +284,7 @@ func authCheckCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dep
 	return command
 }
 
+// resolveCredentials applies flags, environment variables, and prompt policy.
 func resolveCredentials(cmd *cobra.Command, opts options, stdin io.Reader, stdout io.Writer, deps dependencies) (config.Config, error) {
 	values := config.Values{APIKeyFlag: opts.apiKey, AuthModeFlag: opts.authMode, AccountFlag: opts.account, Lookup: os.Getenv}
 	resolved, err := config.Resolve(values)
@@ -243,6 +301,7 @@ func resolveCredentials(cmd *cobra.Command, opts options, stdin io.Reader, stdou
 	}
 }
 
+// promptMissingCredentials collects only credentials absent from configured sources.
 func promptMissingCredentials(values config.Values, stdin io.Reader, stdout io.Writer, deps dependencies) (config.Config, error) {
 	if values.APIKeyFlag == "" && values.Lookup("SIMPLY_API_KEY") == "" {
 		value, err := deps.secret(stdin, stdout, "API key: ")
@@ -265,11 +324,13 @@ func promptMissingCredentials(values config.Values, stdin io.Reader, stdout io.W
 	return config.Resolve(values)
 }
 
+// unauthorized reports whether an SDK error represents rejected credentials.
 func unauthorized(err error) bool {
 	var value interface{ IsUnauthorized() bool }
 	return errors.As(err, &value) && value.IsUnauthorized()
 }
 
+// writeAuthResult renders the credential check result in the selected format.
 func writeAuthResult(stdout io.Writer, format, limit, remaining string) error {
 	if format == "json" {
 		return json.NewEncoder(stdout).Encode(map[string]any{
@@ -280,6 +341,7 @@ func writeAuthResult(stdout io.Writer, format, limit, remaining string) error {
 	return err
 }
 
+// placeholderCommand creates a command whose API operation is not implemented yet.
 func placeholderCommand(use, short, example string) *cobra.Command {
 	return &cobra.Command{
 		Use:     use,
@@ -291,6 +353,7 @@ func placeholderCommand(use, short, example string) *cobra.Command {
 	}
 }
 
+// recordCommand creates a DNS mutation placeholder with its documented flags.
 func recordCommand(commandPath, use, short string, recordFields, id, confirmation bool) *cobra.Command {
 	command := placeholderCommand(use, short, "Interactive: simply-cli "+commandPath+"\nNon-interactive: simply-cli --non-interactive "+commandPath)
 	flags := command.Flags()

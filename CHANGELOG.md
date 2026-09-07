@@ -14,3 +14,5 @@ All notable changes to this project will be documented in this file.
 	and JSON success output, rate-limit-aware errors, and redacted failures.
 - Added `products list`, `dns records list`, and `dns zone show` with table and
 	JSON output, deterministic ordering, and empty-result handling.
+- Added structured `--debug` HTTP diagnostics with redacted credentials and
+	optional owner-only `--debug-file` output.
