@@ -13,13 +13,21 @@ type Products interface {
 
 type Client interface {
 	Products() Products
+	DNS() DNS
+}
+
+type DNS interface {
+	ListRecords(context.Context, string) ([]sdk.Record, sdk.Response, error)
+	Zone(context.Context, string) (sdk.Zone, sdk.Response, error)
 }
 
 type sdkClient struct {
 	products Products
+	dns      DNS
 }
 
 func (c sdkClient) Products() Products { return c.products }
+func (c sdkClient) DNS() DNS           { return c.dns }
 
 type Config struct {
 	APIKey, Account, AuthMode, BaseURL string
@@ -37,5 +45,5 @@ func NewClient(config Config) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return sdkClient{products: client.Products()}, nil
+	return sdkClient{products: client.Products(), dns: client.DNS()}, nil
 }

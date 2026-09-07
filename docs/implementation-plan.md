@@ -1,6 +1,6 @@
 # simply-cli Implementation Plan
 
-Status: Phase 2 implementation complete; SDK publication follow-up remains
+Status: Phase 3 implementation complete; Phase 4 next
 
 Updated: 2026-09-07
 
@@ -20,11 +20,13 @@ can drive the code and tests.
 
 Recorded on 2026-09-07:
 
-- The application scaffold builds and has a context-cancellation test.
-- `internal/config.Config` contains only an API key field.
+- The application scaffold, authentication flow, and read-only command paths
+  build and have focused tests.
+- `internal/config` resolves API key, auth mode, and Basic account settings.
 - The Phase 1 Cobra command parser and complete help hierarchy are implemented.
-- No SDK dependency, prompts, output renderer, or credential loader is
-  implemented yet.
+- Phase 2 credential prompting and the SDK client adapter are implemented.
+- Phase 3 product and read-only DNS commands have table/JSON renderers and
+  deterministic ordering tests.
 - `go-simply-sdk` supports Bearer and Basic authentication, product listing, DNS
   record list/add/update/delete, DNS zone retrieval, and DNS reload.
 - Simply API v2.7.0 has no verified account identity endpoint. Product listing
@@ -220,6 +222,11 @@ Acceptance gate: Bearer and Basic credential checks pass against deterministic
 fake services in both interactive and non-interactive tests.
 
 ### Phase 3: Product and read-only DNS commands
+
+Status: Complete on 2026-09-07. `products list`, `dns records list`, and
+`dns zone show` use narrow SDK interfaces and deterministic table/JSON output.
+Empty results, rate-limit metadata, and command-level fake-service behavior are
+covered by tests.
 
 - Implement `products list`, `dns records list`, and `dns zone show`.
 - Add table and JSON renderers with deterministic ordering where the provider does

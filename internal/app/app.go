@@ -10,7 +10,9 @@ import (
 
 	"github.com/kobberholm/go-simply-cli/internal/config"
 	"github.com/kobberholm/go-simply-cli/internal/input"
+	"github.com/kobberholm/go-simply-cli/internal/output"
 	"github.com/kobberholm/go-simply-cli/internal/simply"
+	sdk "github.com/kobberholm/go-simply-sdk"
 	"github.com/spf13/cobra"
 )
 
@@ -85,22 +87,112 @@ func newRootCommand(ctx context.Context, stdin io.Reader, stdout, stderr io.Writ
 	auth.AddCommand(authCheckCommand(&opts, stdin, stdout, deps))
 
 	products := &cobra.Command{Use: "products", Short: "Manage Simply.com products"}
-	products.AddCommand(placeholderCommand("list", "List products visible to the authenticated account", "simply-cli products list --output json"))
+	products.AddCommand(productsListCommand(&opts, stdin, stdout, deps))
 
 	dns := &cobra.Command{Use: "dns", Short: "Manage DNS records and zones"}
 	records := &cobra.Command{Use: "records", Short: "Manage DNS records"}
-	records.AddCommand(recordCommand("dns records list", "list", "List DNS records", false, false, false))
+	records.AddCommand(recordsListCommand(&opts, stdin, stdout, deps))
 	records.AddCommand(recordCommand("dns records add", "add", "Add a DNS record", true, false, false))
 	records.AddCommand(recordCommand("dns records update", "update", "Replace a DNS record", true, true, false))
 	records.AddCommand(recordCommand("dns records delete", "delete", "Delete a DNS record", false, true, true))
 	dns.AddCommand(records)
 	zone := &cobra.Command{Use: "zone", Short: "Manage DNS zones"}
-	zone.AddCommand(recordCommand("dns zone show", "show", "Show the DNS zone", false, false, false))
+	zone.AddCommand(zoneShowCommand(&opts, stdin, stdout, deps))
 	dns.AddCommand(zone)
 	dns.AddCommand(recordCommand("dns reload", "reload", "Reload the DNS zone", false, false, true))
 
 	root.AddCommand(auth, products, dns)
 	return root
+}
+
+func productsListCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dependencies) *cobra.Command {
+	return &cobra.Command{
+		Use:     "list",
+		Short:   "List products visible to the authenticated account",
+		Example: "Interactive: simply-cli products list\nNon-interactive: SIMPLY_API_KEY=... simply-cli --non-interactive products list --output json",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			client, err := clientForCommand(cmd, *opts, stdin, stdout, deps)
+			if err != nil {
+				return err
+			}
+			products, response, err := client.Products().List(cmd.Context())
+			if err != nil {
+				return commandError("list products", err, response)
+			}
+			return output.Products(stdout, opts.output, products, response)
+		},
+	}
+}
+
+func recordsListCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dependencies) *cobra.Command {
+	command := &cobra.Command{
+		Use:     "list",
+		Short:   "List DNS records",
+		Example: "Interactive: simply-cli dns records list\nNon-interactive: simply-cli --non-interactive dns records list --product example.com",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			client, err := clientForCommand(cmd, *opts, stdin, stdout, deps)
+			if err != nil {
+				return err
+			}
+			product, err := cmd.Flags().GetString("product")
+			if err != nil {
+				return err
+			}
+			records, response, err := client.DNS().ListRecords(cmd.Context(), product)
+			if err != nil {
+				return commandError("list DNS records", err, response)
+			}
+			return output.Records(stdout, opts.output, records, response)
+		},
+	}
+	command.Flags().String("product", "", "Product/domain to manage")
+	_ = command.MarkFlagRequired("product")
+	return command
+}
+
+func zoneShowCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dependencies) *cobra.Command {
+	command := &cobra.Command{
+		Use:     "show",
+		Short:   "Show the DNS zone",
+		Example: "Interactive: simply-cli dns zone show\nNon-interactive: simply-cli --non-interactive dns zone show --product example.com",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			client, err := clientForCommand(cmd, *opts, stdin, stdout, deps)
+			if err != nil {
+				return err
+			}
+			product, err := cmd.Flags().GetString("product")
+			if err != nil {
+				return err
+			}
+			zone, response, err := client.DNS().Zone(cmd.Context(), product)
+			if err != nil {
+				return commandError("show DNS zone", err, response)
+			}
+			return output.Zone(stdout, opts.output, zone, response)
+		},
+	}
+	command.Flags().String("product", "", "Product/domain to manage")
+	_ = command.MarkFlagRequired("product")
+	return command
+}
+
+func clientForCommand(cmd *cobra.Command, opts options, stdin io.Reader, stdout io.Writer, deps dependencies) (simply.Client, error) {
+	credentials, err := resolveCredentials(cmd, opts, stdin, stdout, deps)
+	if err != nil {
+		return nil, err
+	}
+	client, err := deps.newClient(simply.Config{APIKey: credentials.APIKey, Account: credentials.Account, AuthMode: credentials.AuthMode})
+	if err != nil {
+		return nil, fmt.Errorf("create Simply client: %w", err)
+	}
+	return client, nil
+}
+
+func commandError(operation string, err error, response sdk.Response) error {
+	if response.StatusCode == 429 && response.RetryAfter != "" {
+		return fmt.Errorf("%s failed: %w (retry after %s)", operation, err, response.RetryAfter)
+	}
+	return fmt.Errorf("%s failed: %w", operation, err)
 }
 
 func authCheckCommand(opts *options, stdin io.Reader, stdout io.Writer, deps dependencies) *cobra.Command {

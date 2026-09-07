@@ -13,18 +13,41 @@ import (
 )
 
 type fakeProducts struct {
-	err error
+	products []sdk.Product
+	err      error
 }
 
 func (f fakeProducts) List(context.Context) ([]sdk.Product, sdk.Response, error) {
-	return nil, sdk.Response{RateLimitLimit: "20", RateLimitRemaining: "19"}, f.err
+	return f.products, sdk.Response{RateLimitLimit: "20", RateLimitRemaining: "19"}, f.err
 }
 
 type fakeClient struct {
 	products simply.Products
+	dns      simply.DNS
 }
 
 func (f fakeClient) Products() simply.Products { return f.products }
+func (f fakeClient) DNS() simply.DNS {
+	if f.dns == nil {
+		return &fakeDNS{}
+	}
+	return f.dns
+}
+
+type fakeDNS struct {
+	records []sdk.Record
+	zone    sdk.Zone
+	product string
+}
+
+func (f *fakeDNS) ListRecords(_ context.Context, product string) ([]sdk.Record, sdk.Response, error) {
+	f.product = product
+	return f.records, sdk.Response{RateLimitRemaining: "18"}, nil
+}
+
+func (f *fakeDNS) Zone(context.Context, string) (sdk.Zone, sdk.Response, error) {
+	return f.zone, sdk.Response{RateLimitRemaining: "17"}, nil
+}
 
 func TestHelpPathsDoNotNeedCredentials(t *testing.T) {
 	paths := [][]string{
@@ -77,6 +100,53 @@ func TestAuthCheckUsesProvidedCredentialsWithoutPrompting(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout.String(), "Credentials are valid") || strings.Contains(stdout.String(), "flag-key") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestProductsListUsesProductService(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	deps := defaultDependencies()
+	deps.newClient = func(simply.Config) (simply.Client, error) {
+		return fakeClient{products: fakeProducts{products: []sdk.Product{{Object: "example.test", Type: "domain"}}}}, nil
+	}
+	err := runWithDependencies([]string{"--non-interactive", "--api-key", "key", "products", "list", "--output", "json"}, strings.NewReader(""), &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"example.test"`) || !strings.Contains(stdout.String(), `"data"`) {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
+func TestRecordsListPassesProductToDNSService(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	dns := &fakeDNS{records: []sdk.Record{{ID: "7", Name: "www", Type: "CNAME", Value: "target.example."}}}
+	deps := defaultDependencies()
+	deps.newClient = func(simply.Config) (simply.Client, error) {
+		return fakeClient{products: fakeProducts{}, dns: dns}, nil
+	}
+	err := runWithDependencies([]string{"--non-interactive", "--api-key", "key", "dns", "records", "list", "--product", "example.test"}, strings.NewReader(""), &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dns.product != "example.test" || !strings.Contains(stdout.String(), "www") {
+		t.Fatalf("product = %q, stdout = %q", dns.product, stdout.String())
+	}
+}
+
+func TestZoneShowUsesDNSService(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	dns := &fakeDNS{zone: sdk.Zone{Name: "example.test", Records: []sdk.Record{{Name: "www", Type: "A", Value: "192.0.2.1"}}}}
+	deps := defaultDependencies()
+	deps.newClient = func(simply.Config) (simply.Client, error) {
+		return fakeClient{products: fakeProducts{}, dns: dns}, nil
+	}
+	err := runWithDependencies([]string{"--non-interactive", "--api-key", "key", "dns", "zone", "show", "--product", "example.test", "--output", "json"}, strings.NewReader(""), &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), `"example.test"`) || !strings.Contains(stdout.String(), `"192.0.2.1"`) {
 		t.Fatalf("stdout = %q", stdout.String())
 	}
 }
