@@ -3,7 +3,7 @@ module github.com/kobberholm/go-simply-cli
 go 1.26.6
 
 require (
-	github.com/kobberholm/go-simply-sdk v0.0.0-20260907143052-c3e3b1e72155
+	github.com/kobberholm/go-simply-sdk v0.0.0-20260907145325-162e5aedd826
 	github.com/spf13/cobra v1.10.1
 	golang.org/x/term v0.35.0
 )

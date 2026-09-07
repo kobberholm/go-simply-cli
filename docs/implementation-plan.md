@@ -207,10 +207,9 @@ command/flag names match the README.
 
 Status: Implementation complete on 2026-09-07. Credential precedence,
 terminal-aware prompts, Basic/Bearer client construction, `auth check`, error
-redaction, and deterministic adapter tests are implemented. The CLI now uses
-`github.com/kobberholm/go-simply-sdk`; the SDK checkout has a matching module
-declaration on `fix/module-path`. Publish that SDK change, then regenerate the
-CLI pseudo-version dependency from the published commit before a release build.
+redaction, and deterministic adapter tests are implemented. The CLI uses the
+published `github.com/kobberholm/go-simply-sdk` module, including its product
+list envelope decoder.
 
 - Add the tagged SDK dependency and a client factory.
 - Implement flag/environment/prompt precedence and Basic-auth validation.
