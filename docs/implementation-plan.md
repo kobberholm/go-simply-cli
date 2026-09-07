@@ -1,6 +1,6 @@
 # simply-cli Implementation Plan
 
-Status: Proposed
+Status: Phase 2 implementation complete; SDK publication follow-up remains
 
 Updated: 2026-09-07
 
@@ -22,8 +22,9 @@ Recorded on 2026-09-07:
 
 - The application scaffold builds and has a context-cancellation test.
 - `internal/config.Config` contains only an API key field.
-- No command parser, SDK dependency, prompts, output renderer, or credential
-  loader is implemented.
+- The Phase 1 Cobra command parser and complete help hierarchy are implemented.
+- No SDK dependency, prompts, output renderer, or credential loader is
+  implemented yet.
 - `go-simply-sdk` supports Bearer and Basic authentication, product listing, DNS
   record list/add/update/delete, DNS zone retrieval, and DNS reload.
 - Simply API v2.7.0 has no verified account identity endpoint. Product listing
@@ -160,7 +161,7 @@ HTTP server. Keep request serialization, authentication headers, provider models
 and API errors in `go-simply-sdk`; the CLI owns prompting, confirmation, output,
 and exit behavior.
 
-Pin a tagged `github.com/jensen-systems/go-simply-sdk` version in `go.mod`. Local
+Pin a tagged `github.com/kobberholm/go-simply-sdk` version in `go.mod`. Local
 cross-repository development may use workspace mode, but committed dependency
 metadata must not contain a temporary `replace` directive.
 
@@ -183,6 +184,10 @@ metadata must not contain a temporary `replace` directive.
 
 ### Phase 1: Command and help foundation
 
+Status: Complete on 2026-09-07. The command tree, global and command-specific
+flags, injected application streams, mode-conflict validation, and offline help
+tests are implemented. Command handlers remain placeholders until Phase 2.
+
 - Add Cobra and construct the complete command tree with descriptions, examples,
   global flags, and command-specific flags.
 - Change the application entry point to accept arguments and streams.
@@ -195,6 +200,13 @@ Acceptance gate: every documented help invocation exits successfully and its
 command/flag names match the README.
 
 ### Phase 2: Authentication and input modes
+
+Status: Implementation complete on 2026-09-07. Credential precedence,
+terminal-aware prompts, Basic/Bearer client construction, `auth check`, error
+redaction, and deterministic adapter tests are implemented. The CLI now uses
+`github.com/kobberholm/go-simply-sdk`; the SDK checkout has a matching module
+declaration on `fix/module-path`. Publish that SDK change, then regenerate the
+CLI pseudo-version dependency from the published commit before a release build.
 
 - Add the tagged SDK dependency and a client factory.
 - Implement flag/environment/prompt precedence and Basic-auth validation.

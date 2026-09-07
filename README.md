@@ -1,9 +1,10 @@
 # go-simply-cli
 
 `simply-cli` is a command-line application for managing Simply.com products and
-DNS. The command interface documented below is planned and is not implemented
-yet. The repository keeps the `go-simply-cli` name to identify its implementation
-language; the installed command is named `simply-cli`.
+DNS. The command hierarchy, offline help, and credential check are implemented;
+remaining API operations are being added incrementally. The repository keeps
+the `go-simply-cli` name to identify its implementation language; the installed
+command is named `simply-cli`.
 
 ## Prerequisites
 
@@ -174,6 +175,6 @@ machine-readable output.
 
 ## TODO
 
-- Implement the documented command interface and Simply.com API workflows.
+- Implement the documented Simply.com API workflows behind the command tree.
 - Revisit secure credential persistence only if users need it; do not introduce
 	plaintext API-key storage.
